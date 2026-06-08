@@ -2,6 +2,17 @@ const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const { QuickDB } = require('quick.db');
 const db = new QuickDB();
 
+// Lấy từ biến môi trường (Render)
+const TOKEN = process.env.TOKEN;
+const OWNER_ID = process.env.OWNER_ID;
+const PREFIX = process.env.PREFIX || '!';
+
+// Kiểm tra bắt buộc
+if (!TOKEN) {
+  console.error('❌ Thiếu TOKEN. Hãy thêm biến môi trường TOKEN.');
+  process.exit(1);
+}
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -10,10 +21,7 @@ const client = new Client({
   ]
 });
 
-const PREFIX = process.env.PREFIX || '!';
-const OWNER_ID = process.env.OWNER_ID; // Discord ID của bạn
-
-// Danh sách sản phẩm (bạn có thể sửa theo ý)
+// Danh sách sản phẩm (bạn có thể sửa)
 const products = [
   { id: '1', name: 'Áo thun', price: 50000, emoji: '👕' },
   { id: '2', name: 'Giày sneaker', price: 150000, emoji: '👟' },
@@ -22,7 +30,7 @@ const products = [
 ];
 
 client.once('ready', () => {
-  console.log(`${client.user.tag} đã sẵn sàng!`);
+  console.log(`✅ Bot đã online: ${client.user.tag}`);
 });
 
 client.on('messageCreate', async message => {
@@ -31,40 +39,37 @@ client.on('messageCreate', async message => {
   const args = message.content.slice(PREFIX.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
 
-  // Lệnh shop
+  // !shop
   if (command === 'shop') {
     const embed = new EmbedBuilder()
-      .setTitle('🏪 Cửa hàng của Server')
+      .setTitle('🏪 Cửa hàng')
       .setColor(0x00AE86)
-      .setDescription('Dùng `!mua <id>` để đặt mua sản phẩm.')
+      .setDescription('Dùng `!mua <id>` để đặt mua.')
       .setTimestamp();
 
     let desc = '';
     for (const p of products) {
-      desc += `${p.emoji} **${p.name}** - ID: \`${p.id}\` - Giá: ${p.price.toLocaleString()} VND\n`;
+      desc += `${p.emoji} **${p.name}** - ID: \`${p.id}\` - ${p.price.toLocaleString()} VND\n`;
     }
-    embed.addFields({ name: 'Sản phẩm', value: desc || 'Không có sản phẩm nào.' });
+    embed.addFields({ name: 'Sản phẩm', value: desc || 'Chưa có sản phẩm.' });
     message.channel.send({ embeds: [embed] });
   }
 
-  // Lệnh mua hàng
+  // !mua <id>
   else if (command === 'mua' || command === 'buy') {
     const itemId = args[0];
-    if (!itemId) return message.reply('Vui lòng nhập ID sản phẩm. VD: `!mua 1`');
+    if (!itemId) return message.reply('❗ Vui lòng nhập ID sản phẩm. VD: `!mua 1`');
 
     const product = products.find(p => p.id === itemId);
-    if (!product) return message.reply('Sản phẩm không tồn tại.');
+    if (!product) return message.reply('❌ Sản phẩm không tồn tại.');
 
-    // Kiểm tra số dư
     const balance = await db.get(`money_${message.author.id}`) || 0;
     if (balance < product.price) {
-      return message.reply(`Bạn không đủ tiền. Bạn có ${balance.toLocaleString()} VND, cần ${product.price.toLocaleString()} VND.`);
+      return message.reply(`💰 Bạn không đủ tiền. Bạn có ${balance.toLocaleString()} VND, cần ${product.price.toLocaleString()} VND.`);
     }
 
-    // Trừ tiền
     await db.sub(`money_${message.author.id}`, product.price);
 
-    // Lưu đơn hàng
     const order = {
       userId: message.author.id,
       username: message.author.tag,
@@ -75,58 +80,68 @@ client.on('messageCreate', async message => {
     await db.push('orders', order);
 
     // Gửi thông báo cho chủ store
-    try {
-      const owner = await client.users.fetch(OWNER_ID);
-      if (owner) {
-        owner.send(`📦 **Đơn hàng mới** từ ${message.author.tag} (ID: ${message.author.id})\n` +
-                   `Sản phẩm: ${product.emoji} ${product.name}\n` +
-                   `Giá: ${product.price.toLocaleString()} VND\n` +
-                   `Thời gian: ${new Date().toLocaleString()}`);
+    if (OWNER_ID) {
+      try {
+        const owner = await client.users.fetch(OWNER_ID);
+        await owner.send({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('📦 Đơn hàng mới')
+              .setColor(0x3498db)
+              .addFields(
+                { name: 'Khách hàng', value: `${message.author.tag} (${message.author.id})` },
+                { name: 'Sản phẩm', value: `${product.emoji} ${product.name}` },
+                { name: 'Giá', value: `${product.price.toLocaleString()} VND` },
+                { name: 'Thời gian', value: new Date().toLocaleString() }
+              )
+          ]
+        });
+      } catch (e) {
+        console.log('Không thể gửi tin nhắn cho owner: ', e.message);
       }
-    } catch (e) {
-      console.log('Không thể gửi tin nhắn cho owner: ', e);
     }
 
-    message.reply(`✅ Bạn đã mua thành công **${product.name}**. Chủ store sẽ liên hệ để giao hàng.`);
+    message.reply(`✅ Bạn đã mua thành công **${product.name}**. Chủ store sẽ liên hệ giao hàng.`);
   }
 
-  // Lệnh xem số dư
+  // !balance
   else if (command === 'balance' || command === 'money') {
     const balance = await db.get(`money_${message.author.id}`) || 0;
     message.reply(`💰 Số dư của bạn: **${balance.toLocaleString()} VND**`);
   }
 
-  // Lệnh daily (nhận tiền mỗi ngày)
+  // !daily
   else if (command === 'daily') {
-    const cooldown = 24 * 60 * 60 * 1000; // 24 giờ
+    const cooldown = 24 * 60 * 60 * 1000;
     const lastDaily = await db.get(`daily_${message.author.id}`);
     if (lastDaily && Date.now() - lastDaily < cooldown) {
       const remaining = cooldown - (Date.now() - lastDaily);
       const hours = Math.floor(remaining / 3600000);
       const minutes = Math.floor((remaining % 3600000) / 60000);
-      return message.reply(`⏰ Bạn đã nhận daily rồi. Vui lòng quay lại sau ${hours} giờ ${minutes} phút.`);
+      return message.reply(`⏰ Bạn đã nhận daily rồi. Quay lại sau ${hours}h ${minutes}p.`);
     }
 
-    const amount = 10000; // Số tiền tặng mỗi ngày
+    const amount = 10000;
     await db.add(`money_${message.author.id}`, amount);
     await db.set(`daily_${message.author.id}`, Date.now());
-    message.reply(`🎉 Bạn đã nhận **${amount.toLocaleString()} VND** tiền thưởng hàng ngày. Số dư mới: **${(await db.get(`money_${message.author.id}`)).toLocaleString()} VND**`);
+    message.reply(`🎉 Bạn nhận được **${amount.toLocaleString()} VND**. Số dư: **${(await db.get(`money_${message.author.id}`)).toLocaleString()} VND**`);
   }
 
-  // Lệnh xem lịch sử đơn hàng (chỉ owner)
+  // !orders (chỉ owner)
   else if (command === 'orders' && message.author.id === OWNER_ID) {
     const orders = await db.get('orders') || [];
-    if (orders.length === 0) return message.reply('Chưa có đơn hàng nào.');
+    if (orders.length === 0) return message.reply('📭 Chưa có đơn hàng nào.');
     const embed = new EmbedBuilder()
       .setTitle('📋 Lịch sử đơn hàng')
-      .setColor(0x3498db);
+      .setColor(0x2ecc71);
     let text = '';
     orders.slice(-10).forEach((o, i) => {
-      text += `**${i+1}.** ${o.username} mua ${o.product} (${o.price.toLocaleString()} VND) lúc ${new Date(o.time).toLocaleString()}\n`;
+      text += `**${i+1}.** ${o.username} mua ${o.product} - ${o.price.toLocaleString()} VND (${new Date(o.time).toLocaleString()})\n`;
     });
     embed.setDescription(text);
     message.channel.send({ embeds: [embed] });
   }
 });
 
-client.login(process.env.TOKEN);
+// Đăng nhập
+client.login(TOKEN);
