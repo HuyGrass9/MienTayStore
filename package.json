@@ -1,7 +1,7 @@
 {
   "name": "store-bot",
-  "version": "1.0.0",
-  "description": "Bot ban hang Discord",
+  "version": "2.0.0",
+  "description": "Discord Store Bot",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
